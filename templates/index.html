@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG СПЛАВ</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: system-ui, sans-serif;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+
+        @keyframes spin { 
+            to { transform: rotate(360deg); } 
+        }
+        .animate-spin { animation: spin 1s linear infinite; }
+
+        .message-fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .thinking-gradient {
+            background: linear-gradient(135deg, #e0c3fc, #8ec5fc);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    {% raw %}
+    <script type="text/babel">
+
+        const { useState, useEffect } = React;
+
+        // ---------------- Sidebar ----------------
+        function Sidebar({ chats, setCurrentChat, createChat, deleteChat }) {
+            return (
+                <div className="w-64 bg-gray-800 text-white p-4 flex flex-col">
+                    <button
+                        onClick={createChat}
+                        className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded mb-4"
+                    >
+                        + Новый чат
+                    </button>
+
+                    <div className="flex-1 overflow-y-auto">
+                        {chats.map(chat => (
+                            <div
+                                key={chat.id}
+                                className="flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer mb-2"
+                            >
+                                <span
+                                    onClick={() => setCurrentChat(chat)}
+                                    className="flex-1 truncate"
+                                >
+                                    Чат {new Date(chat.id).toLocaleString('ru-RU')}
+                                </span>
+
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteChat(chat.id);
+                                    }}
+                                    className="text-red-400 hover:text-red-600 ml-2"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ---------------- ChatBox ----------------
+        function ChatBox({ messages }) {
+            return (
+                <div className="flex-1 overflow-y-auto p-4 bg-gray-100">
+
+                    {messages.map((msg, idx) => {
+
+                        if (msg.role === "thinking") {
+                            return (
+                                <div
+                                    key={idx}
+                                    className="mb-4 p-4 rounded-lg max-w-xl mr-auto thinking-gradient border-l-4 border-purple-500 message-fade-in"
+                                >
+                                    <div className="flex items-center mb-2">
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600 mr-2"></div>
+                                        <span className="font-semibold text-purple-700">Думаю...</span>
+                                    </div>
+
+                                    <div className="text-sm text-gray-700 space-y-1">
+                                        {msg.steps.map((step, i) => (
+                                            <div key={i} className="flex items-start">
+                                                <span className="mr-2">•</span>
+                                                <span>{step}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        }
+
+                        return (
+                            <div
+                                key={idx}
+                                className={`mb-2 p-3 rounded-lg max-w-xl message-fade-in ${
+                                    msg.role === "user"
+                                        ? "bg-blue-500 text-white ml-auto text-right"
+                                        : "bg-white mr-auto text-left border border-gray-200"
+                                }`}
+                            >
+                                <div style={{whiteSpace: 'pre-line'}}>{msg.text}</div>
+                            </div>
+                        );
+                    })}
+
+                </div>
+            );
+        }
+
+        // ---------------- InputBar ----------------
+        function InputBar({ addMessage, currentChat, createChat }) {
+            const [input, setInput] = useState("");
+            const [isThinking, setIsThinking] = useState(false);
+
+            const sendMessage = async () => {
+                if (!input.trim() || isThinking) return;
+
+                const userMessage = input;
+
+                // Ensure there is a chat on the server. If not, create one and use its id.
+                let chatId = currentChat?.id;
+                if (!chatId) {
+                    const created = await createChat();
+                    chatId = created?.id;
+                }
+
+                addMessage({ role: "user", text: userMessage });
+                setInput("");
+                setIsThinking(true);
+
+                addMessage({
+                    role: "thinking",
+                    steps: [
+                        "Отправляю сообщение на сервер...",
+                        "Жду ответ RAG...",
+                        "Формирую вывод..."
+                    ]
+                });
+
+                const res = await fetch("http://127.0.0.1:5000/api/send_message", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ chat_id: chatId, message: userMessage })
+                });
+
+                const data = await res.json();
+
+                addMessage({
+                    role: "ai",
+                    text: data.reply,
+                    removeThinking: true
+                });
+
+                setIsThinking(false);
+            };
+
+            const handleKey = e => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            };
+
+            return (
+                <div className="flex gap-2 p-4 border-t bg-white">
+                    <input
+                        type="text"
+                        className="flex-1 border rounded p-2"
+                        value={input}
+                        onChange={e => setInput(e.target.value)}
+                        onKeyDown={handleKey}
+                        placeholder="Введите сообщение..."
+                        disabled={isThinking}
+                    />
+
+                    <button
+                        onClick={sendMessage}
+                        disabled={isThinking}
+                        className={`px-4 py-2 rounded text-white ${
+                            isThinking ? "bg-gray-400" : "bg-blue-500 hover:bg-blue-600"
+                        }`}
+                    >
+                        {isThinking ? "Думаю..." : "Отправить"}
+                    </button>
+                </div>
+            );
+        }
+
+        // ---------------- App ----------------
+        function App() {
+            const [chats, setChats] = useState(() => {
+                const saved = localStorage.getItem("chats");
+                return saved ? JSON.parse(saved) : [];
+            });
+
+            const [currentChat, setCurrentChat] = useState(null);
+
+            useEffect(() => {
+                localStorage.setItem("chats", JSON.stringify(chats));
+            }, [chats]);
+
+            const addMessage = (msg) => {
+                if (!currentChat) {
+                    const newChat = { id: Date.now(), messages: [msg] };
+                    setChats([...chats, newChat]);
+                    setCurrentChat(newChat);
+                } else {
+                    setCurrentChat(prev => {
+                        let updated = [...prev.messages];
+
+                        if (msg.removeThinking) {
+                            updated = updated.filter(m => m.role !== "thinking");
+                            delete msg.removeThinking;
+                        }
+
+                        updated.push(msg);
+
+                        const updatedChat = { ...prev, messages: updated };
+
+                        setChats(chats =>
+                            chats.map(c => (c.id === updatedChat.id ? updatedChat : c))
+                        );
+
+                        return updatedChat;
+                    });
+                }
+            };
+
+            const createChat = async () => {
+                const res = await fetch("http://127.0.0.1:5000/api/new_chat", {
+                    method: "POST"
+                });
+
+                const data = await res.json();
+
+                const newChat = { id: data.chat_id, messages: [] };
+
+                setChats(prev => [...prev, newChat]);
+                setCurrentChat(newChat);
+                return newChat;
+            };
+
+            const deleteChat = async (id) => {
+                await fetch("http://127.0.0.1:5000/api/delete_chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ chat_id: id })
+                });
+
+                setChats(chats.filter(c => c.id !== id));
+                if (currentChat?.id === id) setCurrentChat(null);
+            };
+
+            return (
+                <div className="flex h-screen">
+                    <Sidebar
+                        chats={chats}
+                        setCurrentChat={setCurrentChat}
+                        createChat={createChat}
+                        deleteChat={deleteChat}
+                    />
+
+                    <div className="flex flex-col flex-1">
+                        {currentChat ? (
+                            <>
+                                <ChatBox messages={currentChat.messages} />
+                                <InputBar addMessage={addMessage} currentChat={currentChat} createChat={createChat} />
+                            </>
+                        ) : (
+                            <div className="flex-1 flex items-center justify-center text-gray-500">
+                                <h2 className="text-xl">Добро пожаловать! Выберите или создайте чат.</h2>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+    </script>
+    {% endraw %}
+</body>
+</html>
