@@ -1,0 +1,9 @@
+faiss==1.5.3
+Flask==3.1.2
+flask_cors==6.0.1
+numpy==2.3.5
+pandas==2.3.3
+sentence_transformers==5.1.2
+torch==2.9.1
+transformers==4.57.1
+gunicorn==23.0.0

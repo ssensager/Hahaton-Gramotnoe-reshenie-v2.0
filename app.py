@@ -97,6 +97,9 @@ def send_message():
 
     return jsonify({"reply": answer_text, "rag_context": rag_ctx, "top_documents": top_docs})
 
+@app.route('/api/health', methods=['GET', 'HEAD'])
+def health():
+    return jsonify({"status": "ok"})
 
 if __name__ == "__main__":
     app.run(debug=True)
